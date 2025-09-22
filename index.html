@@ -1,15 +1,4 @@
-// 자동완성 데이터 준비 (질문만)
-        const suggestionSet = new Set();
-        rows.forEach(r => {
-          if (r.q) suggestionSet.add(r.q);
-          if (r.keywords) {
-            r.keywords.split(/[\/,\s]+/).forEach(k => {
-              k = k.trim();
-              if (k) suggestionSet.add(k);
-            });
-          }
-        });
-        suggestions = Array.from(suggestionSet);<!doctype html>
+<!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8" />
