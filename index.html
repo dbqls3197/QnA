@@ -7,18 +7,19 @@
   <style>
     :root { --shadow: 0 6px 24px rgba(0,0,0,.08), 0 2px 8px rgba(0,0,0,.06); }
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, 'Noto Sans KR', sans-serif; max-width: 900px; margin: 32px auto; padding: 0 16px;}
+    h1 { margin: 0 0 16px; }
     .search-wrap { position: relative; }
     #search { width:100%; padding:12px 14px; font-size:16px; border:1px solid #ddd; border-radius:10px; }
     .suggest { position:absolute; top:110%; left:0; right:0; background:#fff; border:1px solid #e7e7e7; border-radius:10px; box-shadow: var(--shadow); z-index: 10; max-height: 320px; overflow:auto; display:none; }
     .suggest-item { padding:10px 12px; cursor:pointer; }
     .suggest-item strong { font-weight:700; }
     .suggest-item:hover, .suggest-item.active { background:#f6f6f6; }
+    .muted{ color:#9aa0a6; font-size:13px; margin:12px 0;}
     .item{ padding:16px 0; border-bottom:1px solid #eee;}
-    .q{ font-weight:700; } /* 라벨 없이 굵게만 */
+    .q{ font-weight:700; }             /* 질문: Q. 라벨 없이 굵게만 */
     .summary{ color:#666; margin:6px 0; white-space:pre-wrap;}
     .answer{ white-space:pre-wrap; }
     mark{ background:#fff2ac; }
-    .muted{ color:#9aa0a6; font-size:13px; margin:12px 0;}
   </style>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 </head>
@@ -41,22 +42,47 @@
     const $hint = document.getElementById('hint');
 
     let rows = [];
-    let suggestions = [];    // 자동완성 풀(질문 + 비고 키워드)
-    let activeIndex = -1;    // 키보드 탐색용
+    let suggestions = [];      // 자동완성 후보 (Case + 비고)
+    let activeIndex = -1;      // 자동완성 키보드 탐색 인덱스
 
     Papa.parse(CSV_URL, {
       download: true,
       header: true,
-      skipEmptyLines: true,
+      skipEmptyLines: 'greedy',                      // 공백 줄 제거
+      // 헤더 정규화: BOM 제거 + 공백 정규화
+      transformHeader(h) {
+        return String(h)
+          .replace(/^\uFEFF/, '')                    // BOM 제거
+          .replace(/\s+/g, ' ')                      // 연속 공백 하나로
+          .trim();
+      },
       complete: ({data}) => {
-        rows = data.map(r => ({
-          q: (r["Case"] || "").trim(),
-          summary: (r["멘트-요약"] || "").trim(),
-          full: (r["멘트 풀버전"] || r["멘트 풀버전, 설명"] || "").trim(),
-          keywords: (r["비고"] || "").trim()
-        }));
+        // 안전 컬럼 접근
+        const get = (obj, candidates) => {
+          const keys = Object.keys(obj);
+          // 1) 정확 일치
+          for (const name of candidates) {
+            if (obj[name] != null) return String(obj[name]).trim();
+          }
+          // 2) 공백/구두점 제거 후 유사 일치
+          const norm = s => s.replace(/\s|,|·|\.|，|、/g,'');
+          for (const k of keys) {
+            for (const name of candidates) {
+              if (norm(k) === norm(name)) return String(obj[k]).trim();
+            }
+          }
+          return "";
+        };
 
-        // 자동완성 후보 만들기: 질문(Case) + 키워드(비고: / 구분)
+        // CSV → 내부 모델 매핑 (4컬럼)
+        rows = data.map(r => ({
+          q:        get(r, ["Case"]),
+          summary:  get(r, ["멘트-요약"]),
+          full:     get(r, ["멘트 풀버전", "멘트 풀버전, 설명"]),
+          keywords: get(r, ["비고"])
+        })).filter(r => r.q || r.summary || r.full || r.keywords);
+
+        // 자동완성 후보 구성: 질문 + 비고(/로 분리)
         const set = new Set();
         rows.forEach(r => {
           if (r.q) set.add(r.q);
@@ -69,7 +95,7 @@
       }
     });
 
-    // 디바운스
+    // ===== 입력 이벤트 (디바운스) =====
     let t = null;
     $search.addEventListener('input', e => {
       const term = e.target.value.trim();
@@ -80,7 +106,7 @@
       }, 80);
     });
 
-    // 자동완성 렌더
+    // ===== 자동완성 렌더 =====
     function showSuggest(term){
       activeIndex = -1;
       if (!term) { $suggest.style.display='none'; return; }
@@ -97,14 +123,14 @@
       $suggest.style.display='block';
     }
 
-    // 자동완성 마우스 선택
+    // 마우스로 자동완성 선택
     $suggest.addEventListener('click', e => {
       const el = e.target.closest('.suggest-item');
       if (!el) return;
       pickSuggestion(el.getAttribute('data-value'));
     });
 
-    // 자동완성 키보드 탐색
+    // 키보드 탐색 (↑/↓/Enter/Esc)
     $search.addEventListener('keydown', e => {
       const open = $suggest.style.display === 'block';
       if (!open) return;
@@ -124,8 +150,7 @@
         if (activeIndex >= 0) {
           pickSuggestion(items[activeIndex].getAttribute('data-value'));
         } else {
-          // 그냥 현재 입력으로 검색
-          $suggest.style.display='none';
+          $suggest.style.display='none'; // 현재 입력으로 검색 확정
         }
       } else if (e.key === 'Escape') {
         $suggest.style.display='none';
@@ -143,19 +168,15 @@
       render(value);
     }
 
+    // ===== 결과 렌더 =====
     function render(term){
       const kw = (term || "").toLowerCase();
-
       const filtered = !kw ? [] : rows.filter(r => {
         const hay = [r.q, r.summary, r.full, r.keywords].join(" ").toLowerCase();
         return hay.includes(kw);
       });
 
-      if (!term) {
-        $hint.style.display = 'block';
-      } else {
-        $hint.style.display = 'none';
-      }
+      $hint.style.display = term ? 'none' : 'block';
 
       $list.innerHTML = filtered.map(r => `
         <div class="item">
@@ -166,7 +187,7 @@
       `).join('');
     }
 
-    // 유틸: 하이라이트 & XSS 방지
+    // ===== 유틸: 하이라이트 & XSS 방지 =====
     function hl(text, term){
       if(!term) return text;
       const escRe = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
