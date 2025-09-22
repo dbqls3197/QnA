@@ -157,10 +157,10 @@
         `;
         $debug.style.display = 'block';
 
-        // 자동완성 후보 구성: 질문 + 비고(/로 분리)
+        // 자동완성 후보 구성: 질문만 사용 (답변 내용은 검색에서만 사용)
         const set = new Set();
         rows.forEach(r => {
-          if (r.q) set.add(r.q);
+          if (r.q) set.add(r.q);  // 질문만 자동완성에 추가
           if (r.keywords) {
             r.keywords.split(/[\/,\s]+/).map(s=>s.trim()).filter(Boolean).forEach(k => set.add(k));
           }
@@ -264,7 +264,7 @@
           <div class="q">${hl(esc(r.q), term)}</div>
           ${r.summary ? `<div class="summary">${hl(esc(r.summary), term)}</div>` : ""}
           ${r.full ? `<div class="answer">${hl(esc(r.full), term)}</div>` : ""}
-          ${r.keywords ? `<div style="color: #888; font-size: 12px; margin-top: 8px;">키워드: ${hl(esc(r.keywords), term)}</div>` : ""}
+          ${r.keywords ? `<div style="color: #888; font-size: 12px; margin-top: 8px; border-top: 1px solid #eee; padding-top: 5px;">키워드: ${hl(esc(r.keywords), term)}</div>` : ""}
         </div>
       `).join('');
     }
