@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>QnA</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 32px auto; padding: 0 16px;}
+    .toolbar { display:flex; gap:10px; align-items:center; margin-bottom:12px; flex-wrap:wrap;}
+    input[type="search"]{ flex:1; padding:10px; font-size:16px;}
+    .chip{ padding:4px 10px; border:1px solid #ddd; border-radius:999px; cursor:pointer; }
+    .chip.active{ background:#000; color:#fff; border-color:#000; }
+    .item{ padding:16px 0; border-bottom:1px solid #eee;}
+    .q{ font-weight:700; }
+    .summary{ color:#666; margin:6px 0; white-space:pre-wrap;}
+    .answer{ white-space:pre-wrap; }
+    mark{ background:#fff2ac; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+</head>
+<body>
+  <h1>QnA</h1>
+
+  <div class="toolbar">
+    <input id="search" type="search" placeholder="검색어(질문/요약/풀버전/키워드) 입력…" />
+    <div id="chips"></div>
+  </div>
+
+  <div id="list">로딩 중…</div>
+
+  <script>
+    const CSV_URL = "./data/qna.csv?v=" + Date.now(); // 캐시 무력화
+    const $search = document.getElementById('search');
+    const $list = document.getElementById('list');
+    const $chips = document.getElementById('chips');
+
+    let rows = [];
+    let activeKeyword = null;
+
+    Papa.parse(CSV_URL, {
+      download: true,
+      header: true,          // 한글 헤더 사용
+      skipEmptyLines: true,
+      complete: ({data}) => {
+        // 컬럼 이름: Case, 멘트-요약, 멘트 풀버전, 설명, 비고 ...
+        rows = data.map(r => ({
+          id: (r["*ID"] || r["ID"] || "").trim(),
+          status: (r["상태"] || "").trim(),
+          method: (r["방법"] || "").trim(),
+          q: (r["Case"] || "").trim(),
+          summary: (r["멘트-요약"] || "").trim(),
+          full: (r["멘트 풀버전"] || r["멘트 풀버전, 설명"] || r["설명"] || "").trim(),
+          keywords: parseKeywords(r["비고"]),
+          raw: r
+        }));
+
+        buildKeywordChips(rows);
+        render("");
+      },
+      error: (err) => {
+        $list.textContent = "CSV 로드 실패: " + err;
+      }
+    });
+
+    function parseKeywords(v){
+      if(!v) return [];
+      return String(v)
+        .split("/")         
+        .map(s => s.trim()) 
+        .filter(Boolean);   
+    }
+
+    $search.addEventListener('input', e => render(e.target.value.trim()));
+
+    function render(term){
+      const kw = term.toLowerCase();
+
+      const filtered = rows.filter(r => {
+        const hay = [r.q, r.summary, r.full, r.keywords.join(" ")].join(" ").toLowerCase();
+        const textMatch = !kw || hay.includes(kw);
+        const chipMatch = !activeKeyword || r.keywords.map(k=>k.toLowerCase()).includes(activeKeyword.toLowerCase());
+        return textMatch && chipMatch;
+      });
+
+      $list.innerHTML = filtered.map(r => `
+        <div class="item">
+          <div class="q">Q. ${hl(esc(r.q), term)}</div>
+          ${r.summary ? `<div class="summary">${hl(esc(r.summary), term)}</div>` : ""}
+          ${r.full ? `<div class="answer">${hl(esc(r.full), term)}</div>` : ""}
+          ${r.keywords.length ? `<div style="margin-top:8px; font-size:13px; color:#888;">키워드: ${r.keywords.map(esc).join(", ")}</div>` : ""}
+        </div>
+      `).join('') || `<p>검색 결과가 없습니다.</p>`;
+    }
+
+    function buildKeywordChips(data){
+      const set = new Set();
+      data.forEach(r => r.keywords.forEach(k => set.add(k)));
+      const list = Array.from(set).sort((a,b)=>a.localeCompare(b,'ko'));
+
+      $chips.innerHTML = list.map(k => `
+        <button class="chip" data-k="${escAttr(k)}">${esc(k)}</button>
+      `).join('');
+
+      $chips.addEventListener('click', (e)=>{
+        const btn = e.target.closest('.chip');
+        if(!btn) return;
+        const k = btn.getAttribute('data-k');
+        activeKeyword = (activeKeyword === k) ? null : k;
+        // 토글 스타일
+        [...$chips.querySelectorAll('.chip')].forEach(el => el.classList.toggle('active', el.getAttribute('data-k')===activeKeyword));
+        render($search.value.trim());
+      });
+    }
+
+    // 유틸: 하이라이트 & XSS 방지
+    function hl(text, term){
+      if(!term) return text;
+      const esc = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return text.replace(new RegExp(`(${esc})`, 'gi'), '<mark>$1</mark>');
+    }
+    function esc(str){ return String(str).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+    function escAttr(str){ return esc(str).replace(/"/g,'&quot;'); }
+  </script>
+</body>
+</html>
