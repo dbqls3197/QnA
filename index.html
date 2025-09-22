@@ -135,17 +135,18 @@
         rows = data.map((r, i) => {
           const result = {
             q:        get(r, ["Case", "케이스", "질문"]),
-            summary:  get(r, ["멘트-요약", "멘트요약", "요약", "summary"]),
-            full:     get(r, ["멘트 풀버전", "멘트풀버전", "설명", "풀버전", "답변"]),
+            summary:  get(r, ["멘트-요약 (목록화면에서 옆으로 길게 늘려주세요▼▼▼)", "멘트-요약", "멘트요약", "요약", "summary"]),
+            full:     get(r, ["멘트 풀버전, 설명", "멘트 풀버전", "멘트풀버전", "설명", "풀버전", "답변"]),
             keywords: get(r, ["비고", "키워드", "태그"])
           };
           
           if (i === 0) {
             console.log('첫 번째 행 매핑 결과:', result);
+            console.log('실제 키들:', Object.keys(r));
           }
           
           return result;
-        }).filter(r => r.q || r.summary || r.full || r.keywords);
+        }).filter(r => r.q.trim() !== ''); // 질문(Case)이 있는 행만 표시
 
         console.log('필터링 후 행 수:', rows.length);
         
@@ -263,6 +264,7 @@
           <div class="q">${hl(esc(r.q), term)}</div>
           ${r.summary ? `<div class="summary">${hl(esc(r.summary), term)}</div>` : ""}
           ${r.full ? `<div class="answer">${hl(esc(r.full), term)}</div>` : ""}
+          ${r.keywords ? `<div style="color: #888; font-size: 12px; margin-top: 8px;">키워드: ${hl(esc(r.keywords), term)}</div>` : ""}
         </div>
       `).join('');
     }
