@@ -20,6 +20,7 @@
     .summary{ color:#666; margin:6px 0; white-space:pre-wrap;}
     .answer{ white-space:pre-wrap; }
     mark{ background:#fff2ac; }
+    .debug { background: #f5f5f5; padding: 10px; margin: 10px 0; border-radius: 5px; font-size: 12px; }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 </head>
@@ -32,6 +33,7 @@
   </div>
 
   <div id="hint" class="muted">검색어를 입력해 보세요.</div>
+  <div id="debug" class="debug" style="display:none;"></div>
   <div id="list"></div>
 
   <script>
@@ -40,6 +42,7 @@
     const $list = document.getElementById('list');
     const $suggest = document.getElementById('suggest');
     const $hint = document.getElementById('hint');
+    const $debug = document.getElementById('debug');
 
     let rows = [];
     let suggestions = [];      // 자동완성 후보 (Case + 비고)
@@ -56,42 +59,90 @@
           .replace(/\s+/g, ' ')                      // 연속 공백 하나로
           .trim();
       },
-      complete: ({data}) => {
-        // 안전 컬럼 접근
+      complete: ({data, meta}) => {
+        console.log('CSV 로드 완료:', data.length, '행');
+        console.log('첫 번째 행 키:', Object.keys(data[0] || {}));
+        
+        // 안전 컴럼 접근 - 더 유연한 매칭
         const get = (obj, candidates) => {
           const keys = Object.keys(obj);
+          
           // 1) 정확 일치
           for (const name of candidates) {
-            if (obj[name] != null) return String(obj[name]).trim();
-          }
-          // 2) 공백/구두점 제거 후 유사 일치
-          const norm = s => s.replace(/\s|,|·|\.|，|、/g,'');
-          for (const k of keys) {
-            for (const name of candidates) {
-              if (norm(k) === norm(name)) return String(obj[k]).trim();
+            if (obj[name] != null && String(obj[name]).trim()) {
+              return String(obj[name]).trim();
             }
           }
+          
+          // 2) 부분 일치 (키워드 포함)
+          for (const k of keys) {
+            for (const name of candidates) {
+              if (k.includes(name) || name.includes(k)) {
+                if (obj[k] != null && String(obj[k]).trim()) {
+                  return String(obj[k]).trim();
+                }
+              }
+            }
+          }
+          
+          // 3) 공백/구두점 제거 후 유사 일치
+          const norm = s => s.replace(/\s|,|·|\.|，|、|\(|\)|▼/g,'').toLowerCase();
+          for (const k of keys) {
+            for (const name of candidates) {
+              if (norm(k) === norm(name)) {
+                if (obj[k] != null && String(obj[k]).trim()) {
+                  return String(obj[k]).trim();
+                }
+              }
+            }
+          }
+          
           return "";
         };
 
-        // CSV → 내부 모델 매핑 (4컬럼)
-        rows = data.map(r => ({
-          q:        get(r, ["Case"]),
-          summary:  get(r, ["멘트-요약"]),
-          full:     get(r, ["멘트 풀버전", "멘트 풀버전, 설명"]),
-          keywords: get(r, ["비고"])
-        })).filter(r => r.q || r.summary || r.full || r.keywords);
+        // CSV → 내부 모델 매핑 (4컬럼) - 더 유연한 키 매칭
+        rows = data.map((r, i) => {
+          const result = {
+            q:        get(r, ["Case", "케이스", "질문"]),
+            summary:  get(r, ["멘트-요약", "멘트요약", "요약", "summary"]),
+            full:     get(r, ["멘트 풀버전", "멘트풀버전", "설명", "풀버전", "답변"]),
+            keywords: get(r, ["비고", "키워드", "태그"])
+          };
+          
+          if (i === 0) {
+            console.log('첫 번째 행 매핑 결과:', result);
+          }
+          
+          return result;
+        }).filter(r => r.q || r.summary || r.full || r.keywords);
+
+        console.log('필터링 후 행 수:', rows.length);
+        
+        // 디버그 정보 표시
+        $debug.innerHTML = `
+          로드된 데이터: ${rows.length}개 항목<br>
+          첫 번째 항목: ${rows[0] ? JSON.stringify(rows[0], null, 2).replace(/\n/g, '<br>').replace(/  /g, '&nbsp;&nbsp;') : '없음'}
+        `;
+        $debug.style.display = 'block';
 
         // 자동완성 후보 구성: 질문 + 비고(/로 분리)
         const set = new Set();
         rows.forEach(r => {
           if (r.q) set.add(r.q);
-          if (r.keywords) r.keywords.split("/").map(s=>s.trim()).filter(Boolean).forEach(k => set.add(k));
+          if (r.keywords) {
+            r.keywords.split(/[\/,\s]+/).map(s=>s.trim()).filter(Boolean).forEach(k => set.add(k));
+          }
         });
         suggestions = Array.from(set);
+        
+        console.log('자동완성 후보 수:', suggestions.length);
+        console.log('첫 5개 자동완성 후보:', suggestions.slice(0, 5));
       },
       error: (err) => {
-        $list.textContent = "CSV 로드 실패: " + err;
+        console.error('CSV 로드 에러:', err);
+        $list.innerHTML = `<div style="color: red;">CSV 로드 실패: ${err}<br>경로를 확인해주세요: ${CSV_URL}</div>`;
+        $debug.innerHTML = `CSV 로드 실패: ${err}`;
+        $debug.style.display = 'block';
       }
     });
 
@@ -177,6 +228,11 @@
       });
 
       $hint.style.display = term ? 'none' : 'block';
+
+      if (term && filtered.length === 0) {
+        $list.innerHTML = `<div class="muted">검색 결과가 없습니다. (총 ${rows.length}개 항목 검색됨)</div>`;
+        return;
+      }
 
       $list.innerHTML = filtered.map(r => `
         <div class="item">
