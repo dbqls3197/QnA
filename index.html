@@ -1,90 +1,214 @@
-<!doctype html>
+// 자동완성 데이터 준비 (질문만)
+        const suggestionSet = new Set();
+        rows.forEach(r => {
+          if (r.q) suggestionSet.add(r.q);
+          if (r.keywords) {
+            r.keywords.split(/[\/,\s]+/).forEach(k => {
+              k = k.trim();
+              if (k) suggestionSet.add(k);
+            });
+          }
+        });
+        suggestions = Array.from(suggestionSet);<!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>QnA</title>
   <style>
-    :root { --shadow: 0 6px 24px rgba(0,0,0,.08), 0 2px 8px rgba(0,0,0,.06); }
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, 'Noto Sans KR', sans-serif; max-width: 900px; margin: 32px auto; padding: 0 16px;}
-    h1 { margin: 0 0 16px; }
-    .search-wrap { position: relative; }
-    #search { width:100%; padding:12px 14px; font-size:16px; border:1px solid #ddd; border-radius:10px; }
-    .suggest { position:absolute; top:110%; left:0; right:0; background:#fff; border:1px solid #e7e7e7; border-radius:10px; box-shadow: var(--shadow); z-index: 10; max-height: 320px; overflow:auto; display:none; }
-    .suggest-item { padding:10px 12px; cursor:pointer; }
-    .suggest-item strong { font-weight:700; }
-    .suggest-item:hover, .suggest-item.active { background:#f6f6f6; }
-    .muted{ color:#9aa0a6; font-size:13px; margin:12px 0;}
+    :root { 
+      --shadow: 0 6px 24px rgba(0,0,0,.08), 0 2px 8px rgba(0,0,0,.06);
+      --primary: #667eea;
+      --secondary: #764ba2;
+      --success: #28a745;
+      --info: #2196f3;
+    }
+    body { 
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, 'Noto Sans KR', sans-serif; 
+      max-width: 900px; 
+      margin: 32px auto; 
+      padding: 0 16px;
+      background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+      min-height: 100vh;
+    }
+    h1 { 
+      margin: 0 0 32px; 
+      text-align: center;
+      font-size: 2.5rem;
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      font-weight: 800;
+    }
+    .search-wrap { 
+      position: relative; 
+      margin-bottom: 24px;
+    }
+    #search { 
+      width: 100%; 
+      padding: 16px 20px; 
+      font-size: 16px; 
+      border: none; 
+      border-radius: 50px; 
+      box-shadow: var(--shadow);
+      transition: all 0.3s ease;
+      background: rgba(255,255,255,0.9);
+      backdrop-filter: blur(10px);
+    }
+    #search:focus {
+      outline: none;
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);
+    }
+    .suggest { 
+      position: absolute; 
+      top: 110%; 
+      left: 0; 
+      right: 0; 
+      background: rgba(255,255,255,0.95); 
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255,255,255,0.2); 
+      border-radius: 16px; 
+      box-shadow: var(--shadow); 
+      z-index: 10; 
+      max-height: 320px; 
+      overflow: auto; 
+      display: none; 
+    }
+    .suggest-item { 
+      padding: 12px 20px; 
+      cursor: pointer; 
+      transition: all 0.2s ease;
+      border-radius: 12px;
+      margin: 4px 8px;
+    }
+    .suggest-item:hover, .suggest-item.active { 
+      background: linear-gradient(135deg, var(--primary), var(--secondary)); 
+      color: white;
+      transform: translateX(4px);
+    }
+    .muted{ 
+      color: #666; 
+      font-size: 14px; 
+      text-align: center; 
+      margin: 32px 0;
+      font-style: italic;
+    }
     .item{ 
-      padding: 20px; 
-      margin: 16px 0; 
-      border: 1px solid #e0e0e0; 
-      border-radius: 12px; 
-      background: #fff;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+      padding: 24px; 
+      margin: 24px 0; 
+      border: none;
+      border-radius: 16px; 
+      background: rgba(255,255,255,0.9);
+      backdrop-filter: blur(10px);
+      box-shadow: var(--shadow);
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+    .item::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, var(--primary), var(--secondary));
+    }
+    .item:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 12px 48px rgba(102, 126, 234, 0.2);
     }
     .q{ 
       font-weight: 700; 
-      font-size: 18px;
-      margin-bottom: 16px; 
+      font-size: 20px;
+      margin-bottom: 20px; 
       color: #2c3e50;
-      padding: 12px 16px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      border-radius: 8px;
-      margin: -8px -8px 16px -8px;
+      line-height: 1.4;
+      position: relative;
+      padding-left: 24px;
+    }
+    .q::before {
+      content: '❓';
+      position: absolute;
+      left: 0;
+      top: 0;
+      font-size: 16px;
     }
     .summary{ 
-      color: #555; 
-      margin: 12px 0; 
-      padding: 14px 16px; 
-      background: #f8f9fa; 
-      border-left: 4px solid #28a745;
-      border-radius: 6px;
-      font-size: 14px;
-      line-height: 1.5;
-    }
-    .summary::before {
-      content: "📝 요약";
-      font-weight: 600;
-      color: #28a745;
-      display: block;
-      margin-bottom: 8px;
-      font-size: 12px;
-    }
-    .answer{ 
-      padding: 16px; 
-      background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%); 
-      border-left: 4px solid #2196f3;
-      border-radius: 8px; 
-      margin: 16px 0;
+      margin: 16px 0; 
+      padding: 16px 20px; 
+      background: rgba(40, 167, 69, 0.1); 
+      border-left: 4px solid var(--success);
+      border-radius: 12px;
       font-size: 14px;
       line-height: 1.6;
+      position: relative;
+      padding-left: 48px;
+    }
+    .summary::before {
+      content: "📝";
+      position: absolute;
+      left: 16px;
+      top: 16px;
+      font-size: 18px;
+    }
+    .answer{ 
+      padding: 20px 24px; 
+      background: rgba(33, 150, 243, 0.1); 
+      border-left: 4px solid var(--info);
+      border-radius: 12px; 
+      margin: 20px 0;
+      font-size: 14px;
+      line-height: 1.7;
       white-space: pre-wrap;
+      position: relative;
+      padding-left: 52px;
     }
     .answer::before {
-      content: "💬 상세 답변";
-      font-weight: 600;
-      color: #1976d2;
-      display: block;
-      margin-bottom: 10px;
-      font-size: 13px;
+      content: "💬";
+      position: absolute;
+      left: 20px;
+      top: 20px;
+      font-size: 18px;
     }
     .keywords{ 
-      color: #777; 
-      font-size: 12px; 
-      margin-top: 16px; 
-      padding: 10px 14px;
-      background: #f5f5f5;
-      border-radius: 20px;
-      border: 1px dashed #ccc;
+      margin-top: 20px; 
+      padding: 12px 16px;
+      background: rgba(119, 75, 162, 0.1);
+      border-radius: 24px;
+      border: 1px solid rgba(119, 75, 162, 0.2);
+      font-size: 13px;
+      color: #666;
+      display: inline-block;
     }
     .keywords::before {
       content: "🏷️ ";
-      margin-right: 4px;
+      margin-right: 6px;
     }
-    mark{ background:#fff2ac; }
-    .debug { background: #f5f5f5; padding: 10px; margin: 10px 0; border-radius: 5px; font-size: 12px; }
+    mark{ 
+      background: linear-gradient(120deg, #a8edea 0%, #fed6e3 100%);
+      padding: 2px 4px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+    
+    /* 스크롤바 스타일링 */
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(255,255,255,0.1);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: linear-gradient(135deg, var(--secondary), var(--primary));
+    }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 </head>
@@ -96,8 +220,7 @@
     <div id="suggest" class="suggest" role="listbox" aria-label="자동완성"></div>
   </div>
 
-  <div id="hint" class="muted">검색어를 입력해 보세요.</div>
-  <div id="debug" class="debug" style="display:none;"></div>
+  <div id="hint" class="muted">🔍 검색어를 입력해서 궁금한 내용을 찾아보세요</div>
   <div id="list"></div>
 
   <script>
@@ -174,28 +297,8 @@
           return { q, summary, full, keywords };
         }).filter(r => r.q.trim() !== ''); // 질문이 있는 행만
         
+        // 디버그 정보 표시 제거
         console.log(`매핑 완료: ${rows.length}개 질문`);
-        
-        // 자동완성 데이터 준비 (질문만)
-        const suggestionSet = new Set();
-        rows.forEach(r => {
-          if (r.q) suggestionSet.add(r.q);
-          if (r.keywords) {
-            r.keywords.split(/[\/,\s]+/).forEach(k => {
-              k = k.trim();
-              if (k) suggestionSet.add(k);
-            });
-          }
-        });
-        suggestions = Array.from(suggestionSet);
-        
-        // 디버그 정보 표시
-        $debug.innerHTML = `
-          로드 완료: ${rows.length}개 질문<br>
-          자동완성 항목: ${suggestions.length}개<br>
-          샘플: ${rows.slice(0, 3).map(r => r.q).join(', ')}
-        `;
-        $debug.style.display = 'block';
         
       } catch (error) {
         console.error('CSV 로드 오류:', error);
