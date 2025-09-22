@@ -66,9 +66,10 @@
           }
         }
         
-        // Papa Parse로 처리
+        // Papa Parse로 처리 - 탭 구분자 사용
         const result = Papa.parse(text, {
           header: true,
+          delimiter: '\t',  // 탭 구분자 명시적으로 설정
           skipEmptyLines: 'greedy',
           // 헤더 정규화: BOM 제거 + 공백 정규화
           transformHeader(h) {
