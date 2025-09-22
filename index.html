@@ -48,18 +48,48 @@
     let suggestions = [];      // 자동완성 후보 (Case + 비고)
     let activeIndex = -1;      // 자동완성 키보드 탐색 인덱스
 
-    Papa.parse(CSV_URL, {
-      download: true,
-      header: true,
-      skipEmptyLines: 'greedy',                      // 공백 줄 제거
-      // 헤더 정규화: BOM 제거 + 공백 정규화
-      transformHeader(h) {
-        return String(h)
-          .replace(/^\uFEFF/, '')                    // BOM 제거
-          .replace(/\s+/g, ' ')                      // 연속 공백 하나로
-          .trim();
-      },
-      complete: ({data, meta}) => {
+    // CSV 파일을 먼저 fetch로 가져와서 인코딩 처리
+    fetch(CSV_URL)
+      .then(response => response.arrayBuffer())
+      .then(buffer => {
+        // UTF-8로 디코딩 시도
+        let text;
+        try {
+          text = new TextDecoder('utf-8').decode(buffer);
+        } catch (e) {
+          // UTF-8 실패시 EUC-KR로 시도
+          try {
+            text = new TextDecoder('euc-kr').decode(buffer);
+          } catch (e2) {
+            // EUC-KR도 실패시 CP949로 시도
+            text = new TextDecoder('cp949').decode(buffer);
+          }
+        }
+        
+        // Papa Parse로 처리
+        const result = Papa.parse(text, {
+          header: true,
+          skipEmptyLines: 'greedy',
+          // 헤더 정규화: BOM 제거 + 공백 정규화
+          transformHeader(h) {
+            return String(h)
+              .replace(/^\uFEFF/, '')                    // BOM 제거
+              .replace(/\s+/g, ' ')                      // 연속 공백 하나로
+              .trim();
+          },
+        });
+        
+        handleCSVData(result);
+      })
+      .catch(err => {
+        console.error('CSV 로드 에러:', err);
+        $list.innerHTML = `<div style="color: red;">CSV 로드 실패: ${err}<br>경로를 확인해주세요: ${CSV_URL}</div>`;
+        $debug.innerHTML = `CSV 로드 실패: ${err}`;
+        $debug.style.display = 'block';
+      });
+
+    function handleCSVData({data, meta}) {
+
         console.log('CSV 로드 완료:', data.length, '행');
         console.log('첫 번째 행 키:', Object.keys(data[0] || {}));
         
@@ -137,14 +167,7 @@
         
         console.log('자동완성 후보 수:', suggestions.length);
         console.log('첫 5개 자동완성 후보:', suggestions.slice(0, 5));
-      },
-      error: (err) => {
-        console.error('CSV 로드 에러:', err);
-        $list.innerHTML = `<div style="color: red;">CSV 로드 실패: ${err}<br>경로를 확인해주세요: ${CSV_URL}</div>`;
-        $debug.innerHTML = `CSV 로드 실패: ${err}`;
-        $debug.style.display = 'block';
       }
-    });
 
     // ===== 입력 이벤트 (디바운스) =====
     let t = null;
