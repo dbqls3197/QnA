@@ -16,9 +16,10 @@
     .suggest-item:hover, .suggest-item.active { background:#f6f6f6; }
     .muted{ color:#9aa0a6; font-size:13px; margin:12px 0;}
     .item{ padding:16px 0; border-bottom:1px solid #eee;}
-    .q{ font-weight:700; }             /* 질문: Q. 라벨 없이 굵게만 */
-    .summary{ color:#666; margin:6px 0; white-space:pre-wrap;}
-    .answer{ white-space:pre-wrap; }
+    .q{ font-weight:700; margin-bottom: 8px; }
+    .summary{ color:#666; margin:6px 0; white-space:pre-wrap; background: #f8f9fa; padding: 8px; border-radius: 4px;}
+    .answer{ white-space:pre-wrap; background: #f0f8ff; padding: 10px; border-radius: 4px; margin: 8px 0;}
+    .keywords{ color:#888; font-size:12px; margin-top:8px; padding-top:8px; border-top:1px solid #eee; }
     mark{ background:#fff2ac; }
     .debug { background: #f5f5f5; padding: 10px; margin: 10px 0; border-radius: 5px; font-size: 12px; }
   </style>
@@ -37,7 +38,7 @@
   <div id="list"></div>
 
   <script>
-    const CSV_URL = "./data/qna.csv?v=" + Date.now(); // 캐시 무력화
+    const CSV_URL = "./data/qna.csv?v=" + Date.now();
     const $search = document.getElementById('search');
     const $list = document.getElementById('list');
     const $suggest = document.getElementById('suggest');
@@ -45,238 +46,201 @@
     const $debug = document.getElementById('debug');
 
     let rows = [];
-    let suggestions = [];      // 자동완성 후보 (Case + 비고)
-    let activeIndex = -1;      // 자동완성 키보드 탐색 인덱스
+    let suggestions = [];
+    let activeIndex = -1;
 
-    // CSV 파일을 먼저 fetch로 가져와서 인코딩 처리
-    fetch(CSV_URL)
-      .then(response => response.arrayBuffer())
-      .then(buffer => {
-        // UTF-8로 디코딩 시도
-        let text;
-        try {
-          text = new TextDecoder('utf-8').decode(buffer);
-        } catch (e) {
-          // UTF-8 실패시 EUC-KR로 시도
-          try {
-            text = new TextDecoder('euc-kr').decode(buffer);
-          } catch (e2) {
-            // EUC-KR도 실패시 CP949로 시도
-            text = new TextDecoder('cp949').decode(buffer);
+    // CSV 로드 및 파싱
+    async function loadCSV() {
+      try {
+        const response = await fetch(CSV_URL);
+        const text = await response.text();
+        
+        console.log('=== 원본 CSV 텍스트 첫 500자 ===');
+        console.log(text.substring(0, 500));
+        
+        // 다양한 구분자로 시도
+        const delimiters = ['\t', ',', ';', '|'];
+        let bestResult = null;
+        let maxColumns = 0;
+        
+        for (const delimiter of delimiters) {
+          const result = Papa.parse(text, {
+            header: true,
+            delimiter: delimiter,
+            skipEmptyLines: true,
+            transformHeader: (header) => header.trim()
+          });
+          
+          if (result.data.length > 0) {
+            const columnCount = Object.keys(result.data[0]).length;
+            console.log(`구분자 '${delimiter}': ${columnCount}개 컬럼, ${result.data.length}행`);
+            
+            if (columnCount > maxColumns) {
+              maxColumns = columnCount;
+              bestResult = result;
+            }
           }
         }
         
-        // Papa Parse로 처리 - 탭 구분자 사용
-        const result = Papa.parse(text, {
-          header: true,
-          delimiter: '\t',  // 탭 구분자 명시적으로 설정
-          skipEmptyLines: 'greedy',
-          // 헤더 정규화: BOM 제거 + 공백 정규화
-          transformHeader(h) {
-            return String(h)
-              .replace(/^\uFEFF/, '')                    // BOM 제거
-              .replace(/\s+/g, ' ')                      // 연속 공백 하나로
-              .trim();
-          },
+        if (!bestResult) {
+          throw new Error('CSV 파싱 실패');
+        }
+        
+        console.log('=== 최종 선택된 파싱 결과 ===');
+        console.log('컬럼 수:', maxColumns);
+        console.log('행 수:', bestResult.data.length);
+        console.log('헤더들:', Object.keys(bestResult.data[0] || {}));
+        
+        if (bestResult.data[0]) {
+          console.log('첫 번째 행 데이터:');
+          Object.entries(bestResult.data[0]).forEach(([key, value]) => {
+            console.log(`  "${key}": "${value}"`);
+          });
+        }
+        
+        // 데이터 매핑
+        rows = bestResult.data.map((row, index) => {
+          const keys = Object.keys(row);
+          
+          // 각 필드를 유연하게 찾기
+          const q = findField(row, ['Case', '케이스', '질문']) || '';
+          const summary = findField(row, ['멘트-요약', '멘트요약', '요약', 'summary']) || '';
+          const full = findField(row, ['멘트 풀버전', '멘트풀버전', '설명', '풀버전', '답변']) || '';
+          const keywords = findField(row, ['비고', '키워드', '태그']) || '';
+          
+          return { q, summary, full, keywords };
+        }).filter(r => r.q.trim() !== ''); // 질문이 있는 행만
+        
+        console.log(`매핑 완료: ${rows.length}개 질문`);
+        
+        // 자동완성 데이터 준비 (질문만)
+        const suggestionSet = new Set();
+        rows.forEach(r => {
+          if (r.q) suggestionSet.add(r.q);
+          if (r.keywords) {
+            r.keywords.split(/[\/,\s]+/).forEach(k => {
+              k = k.trim();
+              if (k) suggestionSet.add(k);
+            });
+          }
         });
-        
-        handleCSVData(result);
-      })
-      .catch(err => {
-        console.error('CSV 로드 에러:', err);
-        $list.innerHTML = `<div style="color: red;">CSV 로드 실패: ${err}<br>경로를 확인해주세요: ${CSV_URL}</div>`;
-        $debug.innerHTML = `CSV 로드 실패: ${err}`;
-        $debug.style.display = 'block';
-      });
-
-    function handleCSVData({data, meta}) {
-
-        console.log('CSV 로드 완료:', data.length, '행');
-        console.log('첫 번째 행 키:', Object.keys(data[0] || {}));
-        
-        // 안전 컴럼 접근 - 더 유연한 매칭
-        const get = (obj, candidates) => {
-          const keys = Object.keys(obj);
-          
-          // 1) 정확 일치
-          for (const name of candidates) {
-            if (obj[name] != null && String(obj[name]).trim()) {
-              return String(obj[name]).trim();
-            }
-          }
-          
-          // 2) 부분 일치 (키워드 포함)
-          for (const k of keys) {
-            for (const name of candidates) {
-              if (k.includes(name) || name.includes(k)) {
-                if (obj[k] != null && String(obj[k]).trim()) {
-                  return String(obj[k]).trim();
-                }
-              }
-            }
-          }
-          
-          // 3) 공백/구두점 제거 후 유사 일치
-          const norm = s => s.replace(/\s|,|·|\.|，|、|\(|\)|▼/g,'').toLowerCase();
-          for (const k of keys) {
-            for (const name of candidates) {
-              if (norm(k) === norm(name)) {
-                if (obj[k] != null && String(obj[k]).trim()) {
-                  return String(obj[k]).trim();
-                }
-              }
-            }
-          }
-          
-          return "";
-        };
-
-        // CSV → 내부 모델 매핑 (4컬럼) - 더 유연한 키 매칭
-        rows = data.map((r, i) => {
-          const result = {
-            q:        get(r, ["Case", "케이스", "질문"]),
-            summary:  get(r, ["멘트-요약 (목록화면에서 옆으로 길게 늘려주세요▼▼▼)", "멘트-요약", "멘트요약", "요약", "summary"]),
-            full:     get(r, ["멘트 풀버전, 설명", "멘트 풀버전", "멘트풀버전", "설명", "풀버전", "답변"]),
-            keywords: get(r, ["비고", "키워드", "태그"])
-          };
-          
-          if (i === 0) {
-            console.log('첫 번째 행 매핑 결과:', result);
-            console.log('실제 키들:', Object.keys(r));
-          }
-          
-          return result;
-        }).filter(r => r.q.trim() !== ''); // 질문(Case)이 있는 행만 표시
-
-        console.log('필터링 후 행 수:', rows.length);
+        suggestions = Array.from(suggestionSet);
         
         // 디버그 정보 표시
         $debug.innerHTML = `
-          로드된 데이터: ${rows.length}개 항목<br>
-          첫 번째 항목: ${rows[0] ? JSON.stringify(rows[0], null, 2).replace(/\n/g, '<br>').replace(/  /g, '&nbsp;&nbsp;') : '없음'}
+          로드 완료: ${rows.length}개 질문<br>
+          자동완성 항목: ${suggestions.length}개<br>
+          샘플: ${rows.slice(0, 3).map(r => r.q).join(', ')}
         `;
         $debug.style.display = 'block';
-
-        // 자동완성 후보 구성: 질문만 사용 (답변 내용은 검색에서만 사용)
-        const set = new Set();
-        rows.forEach(r => {
-          if (r.q) set.add(r.q);  // 질문만 자동완성에 추가
-          if (r.keywords) {
-            r.keywords.split(/[\/,\s]+/).map(s=>s.trim()).filter(Boolean).forEach(k => set.add(k));
-          }
-        });
-        suggestions = Array.from(set);
         
-        console.log('자동완성 후보 수:', suggestions.length);
-        console.log('첫 5개 자동완성 후보:', suggestions.slice(0, 5));
+      } catch (error) {
+        console.error('CSV 로드 오류:', error);
+        $list.innerHTML = `<div style="color: red;">CSV 로드 실패: ${error.message}</div>`;
       }
-
-    // ===== 입력 이벤트 (디바운스) =====
-    let t = null;
-    $search.addEventListener('input', e => {
-      const term = e.target.value.trim();
-      clearTimeout(t);
-      t = setTimeout(() => {
-        showSuggest(term);
-        render(term);
-      }, 80);
-    });
-
-    // ===== 자동완성 렌더 =====
-    function showSuggest(term){
-      activeIndex = -1;
-      if (!term) { $suggest.style.display='none'; return; }
-      const lower = term.toLowerCase();
-      const items = suggestions
-        .filter(s => s.toLowerCase().includes(lower))
-        .slice(0, 12);
-
-      if (!items.length) { $suggest.style.display='none'; return; }
-
-      $suggest.innerHTML = items.map((s,i) => `
-        <div class="suggest-item" role="option" data-value="${escAttr(s)}">${hl(esc(s), term)}</div>
-      `).join('');
-      $suggest.style.display='block';
     }
-
-    // 마우스로 자동완성 선택
-    $suggest.addEventListener('click', e => {
-      const el = e.target.closest('.suggest-item');
-      if (!el) return;
-      pickSuggestion(el.getAttribute('data-value'));
-    });
-
-    // 키보드 탐색 (↑/↓/Enter/Esc)
-    $search.addEventListener('keydown', e => {
-      const open = $suggest.style.display === 'block';
-      if (!open) return;
-      const items = [...$suggest.querySelectorAll('.suggest-item')];
-      if (!items.length) return;
-
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        activeIndex = (activeIndex + 1) % items.length;
-        updateActive(items);
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        activeIndex = (activeIndex - 1 + items.length) % items.length;
-        updateActive(items);
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        if (activeIndex >= 0) {
-          pickSuggestion(items[activeIndex].getAttribute('data-value'));
-        } else {
-          $suggest.style.display='none'; // 현재 입력으로 검색 확정
+    
+    // 필드 찾기 함수
+    function findField(obj, candidates) {
+      const keys = Object.keys(obj);
+      
+      // 1. 정확한 일치
+      for (const candidate of candidates) {
+        if (obj[candidate]) return String(obj[candidate]).trim();
+      }
+      
+      // 2. 부분 일치
+      for (const key of keys) {
+        for (const candidate of candidates) {
+          if (key.includes(candidate) && obj[key]) {
+            return String(obj[key]).trim();
+          }
         }
-      } else if (e.key === 'Escape') {
-        $suggest.style.display='none';
       }
-    });
-
-    function updateActive(items){
-      items.forEach((el,i)=>el.classList.toggle('active', i===activeIndex));
-      if (activeIndex>=0) items[activeIndex].scrollIntoView({block:'nearest'});
+      
+      return '';
     }
 
-    function pickSuggestion(value){
-      $search.value = value;
-      $suggest.style.display='none';
-      render(value);
-    }
-
-    // ===== 결과 렌더 =====
-    function render(term){
+    // 검색 및 렌더링
+    function render(term) {
       const kw = (term || "").toLowerCase();
       const filtered = !kw ? [] : rows.filter(r => {
-        const hay = [r.q, r.summary, r.full, r.keywords].join(" ").toLowerCase();
-        return hay.includes(kw);
+        // 질문과 키워드에서만 검색 (답변 내용 제외)
+        const searchText = [r.q, r.keywords].join(" ").toLowerCase();
+        return searchText.includes(kw);
       });
 
       $hint.style.display = term ? 'none' : 'block';
 
       if (term && filtered.length === 0) {
-        $list.innerHTML = `<div class="muted">검색 결과가 없습니다. (총 ${rows.length}개 항목 검색됨)</div>`;
+        $list.innerHTML = `<div class="muted">검색 결과가 없습니다. (총 ${rows.length}개 질문)</div>`;
         return;
       }
 
       $list.innerHTML = filtered.map(r => `
         <div class="item">
           <div class="q">${hl(esc(r.q), term)}</div>
-          ${r.summary ? `<div class="summary">${hl(esc(r.summary), term)}</div>` : ""}
-          ${r.full ? `<div class="answer">${hl(esc(r.full), term)}</div>` : ""}
-          ${r.keywords ? `<div style="color: #888; font-size: 12px; margin-top: 8px; border-top: 1px solid #eee; padding-top: 5px;">키워드: ${hl(esc(r.keywords), term)}</div>` : ""}
+          ${r.summary ? `<div class="summary">📝 ${hl(esc(r.summary), term)}</div>` : ""}
+          ${r.full ? `<div class="answer">💬 ${hl(esc(r.full), term)}</div>` : ""}
+          ${r.keywords ? `<div class="keywords">🏷️ ${hl(esc(r.keywords), term)}</div>` : ""}
         </div>
       `).join('');
     }
 
-    // ===== 유틸: 하이라이트 & XSS 방지 =====
-    function hl(text, term){
-      if(!term) return text;
+    // 자동완성
+    function showSuggest(term) {
+      activeIndex = -1;
+      if (!term) { $suggest.style.display = 'none'; return; }
+      
+      const lower = term.toLowerCase();
+      const items = suggestions
+        .filter(s => s.toLowerCase().includes(lower))
+        .slice(0, 12);
+
+      if (!items.length) { $suggest.style.display = 'none'; return; }
+
+      $suggest.innerHTML = items.map(s => `
+        <div class="suggest-item" role="option" data-value="${escAttr(s)}">${hl(esc(s), term)}</div>
+      `).join('');
+      $suggest.style.display = 'block';
+    }
+
+    // 이벤트 리스너들
+    let debounceTimer = null;
+    $search.addEventListener('input', e => {
+      const term = e.target.value.trim();
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        showSuggest(term);
+        render(term);
+      }, 100);
+    });
+
+    $suggest.addEventListener('click', e => {
+      const el = e.target.closest('.suggest-item');
+      if (!el) return;
+      $search.value = el.getAttribute('data-value');
+      $suggest.style.display = 'none';
+      render($search.value);
+    });
+
+    // 유틸리티 함수들
+    function hl(text, term) {
+      if (!term) return text;
       const escRe = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       return text.replace(new RegExp(`(${escRe})`, 'gi'), '<mark>$1</mark>');
     }
-    function esc(str){ return String(str).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
-    function escAttr(str){ return esc(str).replace(/"/g,'&quot;'); }
+    
+    function esc(str) { 
+      return String(str).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); 
+    }
+    
+    function escAttr(str) { 
+      return esc(str).replace(/"/g, '&quot;'); 
+    }
+
+    // 초기화
+    loadCSV();
   </script>
 </body>
 </html>
